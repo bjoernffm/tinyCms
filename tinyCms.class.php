@@ -2,7 +2,7 @@
 
 	class tinyCms {
 		
-		var $categories = array(
+		private $categories = array(
 			'News' => array(
 				'Nachricht:textarea'
 			),
@@ -15,14 +15,36 @@
 		
 		const dbFilename = 'tinyCms.db';
 
-		var $sqliteHandle = null;
+		private $sqliteHandle = null;
 		
 		public function __construct() {
 			$this->initDb();
-			$this->showGui();
 		}
 		
 		public function getOverview($category) {
+			
+			$category = SQLite3::escapeString($category);
+			
+			$result = $this->sqliteHandle->query("SELECT
+													*
+												FROM
+													`items`
+												WHERE
+													`item_category` = '" . $category . "'
+												ORDER BY
+													`item_date` DESC");
+			$buffer = array();
+			while($row = $result->fetchArray()) {
+				$temp = array(
+					'item_id' => $row['item_id'],
+					'item_title' => $row['item_title'],
+					'item_date' => $row['item_date']
+				);
+				$temp = array_merge($temp, json_decode($row['item_data'], true));
+				$buffer[] = new tinyCmsItem($temp);
+			}
+			
+			return $buffer;
 			
 		}
 		
@@ -226,9 +248,9 @@
 
 		private function initDb() {
 			date_default_timezone_set('Europe/Berlin');
-		
+
 			try {
-				$this->sqliteHandle = new SQLite3( self::dbFilename );
+				$this->sqliteHandle = new SQLite3( dirname(__FILE__) . '/' . self::dbFilename );
 			} catch (Exception $e) {
 				die('Die Datenbank kann nicht geladen/erstellt werden. Schreibrechte gesetzt?');	
 			}
@@ -241,12 +263,50 @@
 						`item_category` VARCHAR(128) NOT NULL,
 						`item_date` DATE NOT NULL
 					);');
-			#$this->sqliteHandle->query('INSERT INTO `items` (`item_title`, `item_data`, `item_category`, `item_date`) VALUES ("Noch ein Titel!", "{}", "news", date("now"));');
 		}
 		
 	}
 
-	header('Content-Type: text/html; charset=utf-8');
-	$cms = new tinyCms();
+	class tinyCmsItem {
+		private $fields = array();
+		
+		public function __construct($array) {
+			$this->fields = $array;
+		}
+		
+		public function get($field, $truncate = -1) {
+			
+			if ($field == 'Titel')
+				return self::truncate($this->fields['item_title'], $truncate);
+			if ($field == 'Datum') {
+				$date = new DateTime($this->fields['item_date']);
+				return $date->format('d.m.Y');
+			}
+			
+			if (isset($this->fields[self::convertText($field)]))
+				return self::truncate($this->fields[self::convertText($field)], $truncate);
+		}
+		
+		public function getLink($page) {
+			return $page.'?id='.$this->fields['item_id'];
+		}
+		
+		private static function convertText($string) {
+			$string = strtolower($string);
+			$string = preg_replace('#[^\da-z]#', ' ', $string);
+			$string = trim($string);
+			$string = str_replace(' ', '_', $string);
+			return $string;
+		}
+		
+		private static function truncate($string, $maxLength = -1) {
+			$maxLength = (int) $maxLength;
+			
+			if ($maxLength > 0)
+				$string = substr($string, 0, strrpos(substr($string, 0, $maxLength), ' ')) . ' ...';
+			
+			return $string;
+		}
+	}
 
 ?>
